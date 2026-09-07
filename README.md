@@ -1,5 +1,7 @@
 # emac
 
+![maturity](https://img.shields.io/badge/maturity-simulated-yellow) ![license](https://img.shields.io/badge/license-MulanPSL--2.0-blue)
+
 Ethernet MAC in Bluespec, targeting 100BASE-TX over RMII.
 
 RMII carries two bits per 50 MHz reference clock, so 100 Mbit/s needs no more
