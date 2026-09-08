@@ -27,12 +27,22 @@ interface EmacIfc#(numeric type aw, numeric type dw, numeric type bufWords);
   (* always_ready *) method Bool irq;
 endinterface
 
+// 缓冲区里的字节地址：字索引宽度再加两位字内偏移。写死成 11 位的话
+// bufWords 一过 512，接收半区的起点 half*4 就是 2048，装不进去（T0051）
+// ——而清单里写的上界是 1024。宽度必须由参数推出来。
+//
+// 再取一个 11 位的下界：帧长寄存器就是 11 位，缓冲区小到 64 字时字节地址
+// 只要 9 位，往帧长里放就成了扩位而不是截位，两个方向都要成立。
+typedef TMax#(TAdd#(TLog#(TAdd#(n, 1)), 2), 11) BytePos#(numeric type n);
+
 module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
     provisos (Mul#(TDiv#(dw, 8), 8, dw), Add#(_a, 12, aw), Add#(_b, 1, dw),
               Add#(_c, 32, dw), Add#(_d, 16, dw), Add#(_e, 11, dw),
               Add#(_f, 2, dw), Log#(TAdd#(bufWords, 1), _g),
               Add#(_h, TLog#(TAdd#(bufWords, 1)), 12),
-              Add#(_i, TLog#(TAdd#(bufWords, 1)), 11));
+              Add#(_i, TLog#(TAdd#(bufWords, 1)), 11),
+              Add#(_j, 11, BytePos#(bufWords)),
+              Add#(_k, TLog#(TAdd#(bufWords, 1)), BytePos#(bufWords)));
 
   EmacRegsIfc#(aw, dw, bufWords) r <- mkEmacRegs;
   RmiiTxIfc tx <- mkRmiiTx;
@@ -40,10 +50,10 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
 
   Reg#(Bool)      txRun  <- mkConfigReg(False);
   Reg#(Bit#(11))  txLeft <- mkReg(0);
-  Reg#(Bit#(11))  txPos  <- mkReg(0);
+  Reg#(Bit#(BytePos#(bufWords))) txPos  <- mkReg(0);
   Reg#(Bool)      txPend <- mkReg(False);
 
-  Reg#(Bit#(11))  rxPos  <- mkConfigReg(0);
+  Reg#(Bit#(BytePos#(bufWords))) rxPos  <- mkConfigReg(0);
   Reg#(Bit#(48))  rxDst  <- mkConfigReg(0);
   Reg#(Bool)      rxDrop <- mkConfigReg(False);
   Reg#(Bit#(11))  rxLen  <- mkConfigReg(0);
@@ -89,7 +99,7 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
       // 末尾那一拍只带校验结果，不带数据
       // 被过滤掉的帧不叫醒软件，缓冲区留给下一帧
       rxFull <= !rxDrop;
-      rxLen  <= rxDrop ? 0 : rxPos;
+      rxLen  <= rxDrop ? 0 : truncate(rxPos);
       fcsBad <= !x.fcsOk;
       rxPos  <= 0;
       rxDrop <= False;
@@ -103,7 +113,7 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
         Bit#(48) me = {r.machi, r.maclo};
         rxDrop <= (nd != me) && (nd != 48'hFFFF_FFFF_FFFF);
       end
-      Bit#(11) p = rxPos + fromInteger(half * 4);
+      Bit#(BytePos#(bufWords)) p = rxPos + fromInteger(half * 4);
       Bit#(32) w = r.frame[p >> 2];
       Bit#(32) nw = case (p[1:0])
                       0: {w[31:8],  x.dat};
@@ -114,7 +124,7 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
       r.frame_in(truncate(p >> 2), nw);
       rxPos <= rxPos + 1;
     end else if (!rxDrop && rxPos < fromInteger(half * 4)) begin
-      Bit#(11) p = rxPos + fromInteger(half * 4);
+      Bit#(BytePos#(bufWords)) p = rxPos + fromInteger(half * 4);
       Bit#(32) w = r.frame[p >> 2];
       Bit#(32) nw = case (p[1:0])
                       0: {w[31:8],  x.dat};
