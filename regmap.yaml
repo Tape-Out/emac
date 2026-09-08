@@ -1,0 +1,63 @@
+ip: emac
+contract: { aw: 12, dw: 32 }
+base: 0x1000C000
+size: 0x1000
+params: [bufWords]
+
+regs:
+  - name: ctrl
+    offset: 0x00
+    desc: control
+    fields:
+      - { name: en,      bits: "0:0", sw: rw, hw: r, reset: 0 }
+      - { name: promisc, bits: "1:1", sw: rw, hw: r, reset: 0 }
+      - { name: loop,    bits: "2:2", sw: rw, hw: r, reset: 0 }
+
+  - name: maclo
+    offset: 0x04
+    desc: station address, low 32 bits
+    fields: [ { name: val, width: 32, sw: rw, hw: r, reset: 0 } ]
+
+  - name: machi
+    offset: 0x08
+    desc: station address, high 16 bits
+    fields: [ { name: val, bits: "15:0", sw: rw, hw: r, reset: 0 } ]
+
+  - name: txlen
+    offset: 0x10
+    desc: writing a length hands the transmit buffer to the MAC
+    fields:
+      - { name: val, bits: "10:0", sw: rw, hw: r, reset: 0, swmod: true }
+
+  - name: rxlen
+    offset: 0x14
+    desc: bytes in the receive buffer, reading arms the next frame
+    fields:
+      - { name: val, bits: "10:0", sw: r, hw: w, volatile: true, swacc: true }
+
+  - name: status
+    offset: 0x18
+    desc: status, all from hardware
+    fields:
+      - { name: txbusy, bits: "0:0", sw: r, hw: w, volatile: true }
+      - { name: rxfull, bits: "1:1", sw: r, hw: w, volatile: true }
+      - { name: fcserr, bits: "2:2", sw: r, hw: w, volatile: true }
+
+  - name: ie
+    offset: 0x1C
+    desc: interrupt enable
+    fields:
+      - { name: txdone, bits: "0:0", sw: rw, hw: r, reset: 0 }
+      - { name: rxdone, bits: "1:1", sw: rw, hw: r, reset: 0 }
+
+  - name: ista
+    offset: 0x20
+    desc: interrupt status, write one to clear
+    fields:
+      - { name: val, width: 2, sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+
+  - name: frame
+    offset: 0x800
+    desc: frame buffer, transmit in the low half and receive in the high half
+    array: { count: bufWords, stride: 4 }
+    fields: [ { name: val, width: 32, sw: rw, hw: rw, reset: 0 } ]

@@ -1,0 +1,52 @@
+name: emac
+version: 0.1.0
+spec: '0.1'
+kind: ip
+lang: bsv
+identity:
+  slug: emac-tapeout-bsv
+  display_name: Ethernet MAC with an RMII interface
+  summary: 'A buffered 10/100 MAC: fill a buffer, write the length, it goes.'
+  category: network
+  subcategories:
+  - ethernet
+  ip_family: emac
+  integration_profile:
+  - apb4-slave
+  maturity: planned
+contract:
+  version: 1
+  ctrl:
+    shape: flat
+    aw: 12
+    dw: 32
+  irq:
+  - name: irq
+    kind: level
+params:
+  bufWords:
+    type: int
+    default: 512
+    range:
+    - 64
+    - 1024
+    desc: 帧缓冲区字数，收发各占一半
+features:
+  promisc:
+    type: bool
+    default: false
+emit:
+- kind: bsv
+  package: Emac
+  module: mkEmac
+  config_type: EmacCfg
+  interface: EmacIfc
+  ctrl: regs
+  pins:
+  - name: pins
+    type: EmacPins
+- kind: verilog-flat
+  bus: apb4
+deps:
+  hwcore: ^0.1
+  amba: ^0.1
