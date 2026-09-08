@@ -36,7 +36,7 @@ endinterface
 typedef TMax#(TAdd#(TLog#(TAdd#(n, 1)), 2), 11) BytePos#(numeric type n);
 
 module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
-    provisos (Mul#(TDiv#(dw, 8), 8, dw), Add#(_a, 12, aw), Add#(_b, 1, dw),
+    provisos (Mul#(TDiv#(dw, 8), 8, dw), Add#(_a, 13, aw), Add#(_b, 1, dw),
               Add#(_c, 32, dw), Add#(_d, 16, dw), Add#(_e, 11, dw),
               Add#(_f, 2, dw), Log#(TAdd#(bufWords, 1), _g),
               Add#(_h, TLog#(TAdd#(bufWords, 1)), 12),
@@ -109,7 +109,11 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
       // 收完第六个字节当场决定这一帧还要不要往下写。
       Bit#(48) nd = {rxDst[39:0], x.dat};
       rxDst <= nd;
-      if (rxPos == 5 && !cfg.promisc) begin
+      // 特性决定这套过滤存不存在，寄存器位决定此刻开不开。
+      // 原来直接看 cfg.promisc，特性一开过滤就永远关着，
+      // 而软件那一位写得进去却什么也不改变。
+      Bool loose = cfg.promisc && r.ctrl_promisc == 1;
+      if (rxPos == 5 && !loose) begin
         Bit#(48) me = {r.machi, r.maclo};
         rxDrop <= (nd != me) && (nd != 48'hFFFF_FFFF_FFFF);
       end
@@ -151,10 +155,23 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
     r.status_fcserr_in(fcsBad ? 1 : 0);
   endrule
 
+  // 环回：把发送侧的两根线喂回接收侧，外面那一路照旧存在、只是被忽略。
+  // 没有 PHY 也能自检一整帧，这正是 ctrl.loop 该有的样子。
+  function Action feedRx(Bit#(2) d, Bool dv, Bool er) =
+    (r.ctrl_loop == 1)
+      ? rx.pins.wire_in(tx.pins.txd, tx.pins.tx_en, False)
+      : rx.pins.wire_in(d, dv, er);
+
+  // 接口先做成一个值再挂上去：直接内嵌 interface rx 的话，
+  // 那个名字会盖住模块里的 rx 子模块
+  RmiiRxPins rxLoop = interface RmiiRxPins;
+                        method wire_in = feedRx;
+                      endinterface;
   interface regs = r.regs;
+
   interface EmacPins pins;
     interface tx = tx.pins;
-    interface rx = rx.pins;
+    interface rx = rxLoop;
   endinterface
   method Bool irq = ((r.ie_txdone == 1) && r.ista[0] == 1)
                  || ((r.ie_rxdone == 1) && r.ista[1] == 1);

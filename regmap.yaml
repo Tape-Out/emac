@@ -1,7 +1,7 @@
 ip: emac
-contract: { aw: 12, dw: 32 }
+contract: { aw: 13, dw: 32 }
 base: 0x1000C000
-size: 0x1000
+size: 0x2000
 params: [bufWords]
 
 regs:
@@ -57,7 +57,10 @@ regs:
       - { name: val, width: 2, sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
 
   - name: frame
-    offset: 0x800
-    desc: frame buffer, transmit in the low half and receive in the high half
+    offset: 0x1000
+    desc: >-
+      frame buffer, transmit in the low half and receive in the high half.
+      窗口留到 8 KB：一整帧以太网 1518 字节，收发各要 380 字，
+      所以 bufWords 的上界 1024 必须放得下，地址位宽跟着到 13。
     array: { count: bufWords, stride: 4 }
     fields: [ { name: val, width: 32, sw: rw, hw: rw, reset: 0 } ]
