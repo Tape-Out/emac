@@ -44,6 +44,8 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
   Reg#(Bool)      txPend <- mkReg(False);
 
   Reg#(Bit#(11))  rxPos  <- mkConfigReg(0);
+  Reg#(Bit#(48))  rxDst  <- mkConfigReg(0);
+  Reg#(Bool)      rxDrop <- mkConfigReg(False);
   Reg#(Bit#(11))  rxLen  <- mkConfigReg(0);
   Reg#(Bool)      rxFull <- mkConfigReg(False);
   Reg#(Bool)      fcsBad <- mkConfigReg(False);
@@ -85,12 +87,33 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
     let x <- rx.rx.get;
     if (x.last) begin
       // 末尾那一拍只带校验结果，不带数据
-      rxFull <= True;
-      rxLen  <= rxPos;
+      // 被过滤掉的帧不叫醒软件，缓冲区留给下一帧
+      rxFull <= !rxDrop;
+      rxLen  <= rxDrop ? 0 : rxPos;
       fcsBad <= !x.fcsOk;
       rxPos  <= 0;
-      r.ista_set(2'b10);
-    end else if (rxPos < fromInteger(half * 4)) begin
+      rxDrop <= False;
+      if (!rxDrop) r.ista_set(2'b10);
+    end else if (rxPos < 6) begin
+      // 前六个字节是目的地址。不开混杂模式就只收自己的与广播的，
+      // 收完第六个字节当场决定这一帧还要不要往下写。
+      Bit#(48) nd = {rxDst[39:0], x.dat};
+      rxDst <= nd;
+      if (rxPos == 5 && !cfg.promisc) begin
+        Bit#(48) me = {r.machi, r.maclo};
+        rxDrop <= (nd != me) && (nd != 48'hFFFF_FFFF_FFFF);
+      end
+      Bit#(11) p = rxPos + fromInteger(half * 4);
+      Bit#(32) w = r.frame[p >> 2];
+      Bit#(32) nw = case (p[1:0])
+                      0: {w[31:8],  x.dat};
+                      1: {w[31:16], x.dat, w[7:0]};
+                      2: {w[31:24], x.dat, w[15:0]};
+                      default: {x.dat, w[23:0]};
+                    endcase;
+      r.frame_in(truncate(p >> 2), nw);
+      rxPos <= rxPos + 1;
+    end else if (!rxDrop && rxPos < fromInteger(half * 4)) begin
       Bit#(11) p = rxPos + fromInteger(half * 4);
       Bit#(32) w = r.frame[p >> 2];
       Bit#(32) nw = case (p[1:0])
