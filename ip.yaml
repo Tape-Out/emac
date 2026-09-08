@@ -35,6 +35,13 @@ features:
   promisc:
     type: bool
     default: false
+    area:
+      points:
+        '64': 969.08
+        '80': -17.36
+        '96': 353.64
+        '128': -283.64
+      per: bufWords
 emit:
 - kind: bsv
   package: Emac
@@ -50,3 +57,58 @@ emit:
 deps:
   hwcore: ^0.1
   amba: ^0.1
+area:
+  base:
+    points:
+      '64': 40957.0
+      '80': 49581.56
+      '96': 58117.92
+      '128': 75245.52
+    per: bufWords
+  margin: 0.0095
+  model: points-additive
+  error:
+    bound: 0.037
+    sign: over
+    note: parameter curves stored as measured points, features added on top, then
+      lifted by 0.0095 so that no untested combination predicts under; the worst came
+      in 0.45 percent under before the lift
+  measured:
+  - at:
+      bufWords: 64
+      promisc: false
+    um2: 40957.0
+  - at:
+      bufWords: 80
+      promisc: false
+    um2: 49581.56
+  - at:
+      bufWords: 96
+      promisc: false
+    um2: 58117.92
+  - at:
+      bufWords: 128
+      promisc: false
+    um2: 75245.52
+  - at:
+      bufWords: 64
+      promisc: true
+    um2: 41926.08
+  - at:
+      bufWords: 80
+      promisc: true
+    um2: 49564.2
+  - at:
+      bufWords: 96
+      promisc: true
+    um2: 58471.56
+  - at:
+      bufWords: 128
+      promisc: true
+    um2: 74961.88
+  corner:
+    tool: ecc
+    pdk: ics55
+    freq_mhz: 100
+    measured: '2026-09-09'
+    gen_digest: sha256:dab9ba7d6a0ce535
