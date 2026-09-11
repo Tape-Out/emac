@@ -37,10 +37,10 @@ features:
     default: false
     area:
       points:
-        '64': 25.76
-        '80': -423.64
-        '96': -541.52
-        '128': -680.68
+        '64': -20.72
+        '80': -509.88
+        '96': 308.28
+        '128': -29.4
       per: bufWords
 emit:
 - kind: bsv
@@ -60,10 +60,10 @@ deps:
 area:
   base:
     points:
-      '64': 40681.2
-      '80': 49873.32
-      '96': 58886.8
-      '128': 76115.76
+      '64': 41496.28
+      '80': 49795.2
+      '96': 58448.88
+      '128': 77012.88
     per: bufWords
   margin: 0.0095
   model: points-additive
@@ -77,38 +77,39 @@ area:
   - at:
       bufWords: 64
       promisc: false
-    um2: 40681.2
+    um2: 41496.28
   - at:
       bufWords: 80
       promisc: false
-    um2: 49873.32
+    um2: 49795.2
   - at:
       bufWords: 96
       promisc: false
-    um2: 58886.8
+    um2: 58448.88
   - at:
       bufWords: 128
       promisc: false
-    um2: 76115.76
+    um2: 77012.88
   - at:
       bufWords: 64
       promisc: true
-    um2: 40706.96
+    um2: 41475.56
   - at:
       bufWords: 80
       promisc: true
-    um2: 49449.68
+    um2: 49285.32
   - at:
       bufWords: 96
       promisc: true
-    um2: 58345.28
+    um2: 58757.16
   - at:
       bufWords: 128
       promisc: true
-    um2: 75435.08
+    um2: 76983.48
   corner:
     tool: ecc
     pdk: ics55
     freq_mhz: 100
-    measured: '2026-09-10'
-    gen_digest: sha256:c307a0da4475abd0
+    measured: '2026-09-11'
+    toolchain: bsc 2026.01 · yosys 0.68+195 · ecc 0.1.0a11
+    gen_digest: sha256:08b7eb7ecc548588

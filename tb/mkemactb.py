@@ -27,6 +27,9 @@ MACLO = 0x56789ABC
 # 目的 6 + 源 6 + 类型 2 + 净荷 2 = 16 字节，字内低位在前
 WORDS = [0x78563412, 0x0201BC9A, 0x06050403, 0x5AA50008]
 NBYTES = len(WORDS) * 4
+# 帧之后埋一个毒图案。补齐若拿缓冲区旧内容去补，它会原样发到线上——
+# 那正是 Etherleak（CVE-2003-0001）那一类：把上一帧的残留漏给对端。
+POISON = 0xDEADBEEF
 half = buf // 2
 FRAME = 0x1000
 RXBASE = FRAME + half * 4
@@ -53,6 +56,7 @@ module mkEmac{label}Tb(Empty);
   Reg#(Bool)     bad <- mkReg(False);
   Reg#(Bit#(32)) w0  <- mkReg(0);
   Reg#(Bit#(32)) rlen <- mkReg(0);
+  Reg#(Bit#(32)) padW <- mkReg(0);   // 补齐区的第一个字
 
   // 引脚要每拍驱动。开了环回之后这一路被忽略，但方法还在，不喂不行。
   rule drivePins;
@@ -89,9 +93,11 @@ module mkEmac{label}Tb(Empty);
     case (s)
 {chr(10).join(f"      {i}: wr(13'h{FRAME + i * 4:04X}, 32'h{w:08X});"
               for i, w in enumerate(WORDS))}
+{chr(10).join(f"      {len(WORDS) + i}: wr(13'h{FRAME + (len(WORDS) + i) * 4:04X}, 32'h{POISON:08X});"
+              for i in range(4))}
       default: ph <= Go;
     endcase
-    if (s < {len(WORDS)}) s <= s + 1; else s <= 0;
+    if (s < {len(WORDS) + 4}) s <= s + 1; else s <= 0;
   endrule
 
 
@@ -110,18 +116,21 @@ module mkEmac{label}Tb(Empty);
 
   // 先读帧内容再读 rxlen：读 rxlen 会把缓冲区放回去
   rule check (ph == Check);
+    // 0：帧头第一个字 · 1：补齐区的第一个字（该是零）· 2：状态 · 3：长度
     Bit#(13) a = (s == 0) ? 13'h{RXBASE:04X}
-               : ((s == 1) ? 13'h018 : 13'h014);
+               : ((s == 1) ? 13'h{RXBASE + NBYTES:04X}
+               : ((s == 2) ? 13'h018 : 13'h014));
     let x <- d.regs.access(RegReq {{ addr: a, write: False,
                                      wdata: 0, wstrb: 4'hF }});
     if (s == 0) w0 <= x.rdata;
-    if (s == 1 && x.rdata[2] == 1) begin
+    if (s == 1) padW <= x.rdata;
+    if (s == 2 && x.rdata[2] == 1) begin
       $display("FAIL the frame came back with a bad checksum");
       bad <= True;
     end
-    if (s == 2) rlen <= x.rdata;
-    if (s == 2) ph <= Done;
-    if (s < 2) s <= s + 1; else s <= 0;
+    if (s == 3) rlen <= x.rdata;
+    if (s == 3) ph <= Done;
+    if (s < 3) s <= s + 1; else s <= 0;
   endrule
 
   rule fin (ph == Done);
@@ -135,8 +144,25 @@ module mkEmac{label}Tb(Empty);
       $display("FAIL rxlen is %0d, want at least {NBYTES}", rlen);
       wrong = True;
     end
+    // 802.3 的最小帧是 64 字节（含四字节 FCS），不足的要由 MAC 补齐。
+    // 只发十六个字节就撒手，线上出去的是个 runt——任何交换机都会把它丢掉，
+    // 而软件这一侧什么也看不出来。补齐之后收回来的净荷该是 60 字节。
+    //
+    // 补什么值也有讲究：拿缓冲区里的旧内容去补会把上一帧的残留发到线上
+    // （Etherleak，CVE-2003-0001 那一类），所以补零。
+    // 补的必须是零。拿缓冲区里的旧内容去补，等于把上一帧的残留发给对端。
+    if (padW != 0) begin
+      $display("FAIL the padding carried stale buffer contents: %08h", padW);
+      wrong = True;
+    end
+    if (rlen < 60) begin
+      $display("FAIL a %0d byte frame went out as a runt: rxlen is %0d, want 60",
+               {NBYTES}, rlen);
+      wrong = True;
+    end
     if (wrong) $display("FAILED");
-    else $display("PASS emac: a frame goes out, loops back, and reads out intact");
+    else $display("PASS emac: a short frame is padded to the minimum with zeros, "
+                  + "goes out, loops back, and reads out intact");
     $finish(wrong ? 1 : 0);
   endrule
 endmodule

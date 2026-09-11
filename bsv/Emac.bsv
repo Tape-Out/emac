@@ -50,6 +50,7 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
 
   Reg#(Bool)      txRun  <- mkConfigReg(False);
   Reg#(Bit#(11))  txLeft <- mkReg(0);
+  Reg#(Bit#(11))  txHave <- mkReg(0);   // 软件真正给了多少字节，超出的补零
   Reg#(Bit#(BytePos#(bufWords))) txPos  <- mkReg(0);
   Reg#(Bool)      txPend <- mkReg(False);
 
@@ -71,18 +72,24 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
 
   rule startTx (txPend && !txRun && r.ctrl_en == 1);
     txRun  <= True;
-    txLeft <= r.txlen;
+    // 802.3 的最小帧是 64 字节（含四字节 FCS），净荷不足 60 的由 MAC 补齐——
+    // 不补就是个 runt，线上任何交换机都会丢掉，而软件这一侧什么也看不出来。
+    txLeft <= (r.txlen < 60) ? 60 : r.txlen;
+    txHave <= r.txlen;
     txPos  <= 0;
   endrule
 
   rule sendByte (txRun && txLeft != 0);
     Bit#(32) w = r.frame[txPos >> 2];
-    Bit#(8)  b = case (txPos[1:0])
-                   0: w[7:0];
-                   1: w[15:8];
-                   2: w[23:16];
-                   default: w[31:24];
-                 endcase;
+    Bit#(8)  raw = case (txPos[1:0])
+                     0: w[7:0];
+                     1: w[15:8];
+                     2: w[23:16];
+                     default: w[31:24];
+                   endcase;
+    // 补的是零，不是缓冲区里的旧内容——拿旧内容去补会把上一帧的残留发到线上，
+    // 那正是 Etherleak（CVE-2003-0001）那一类的泄漏。
+    Bit#(8)  b = (txPos >= zeroExtend(txHave)) ? 0 : raw;
     tx.tx.put(tuple2(b, txLeft == 1));
     txPos  <= txPos + 1;
     txLeft <= txLeft - 1;
