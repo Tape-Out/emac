@@ -53,6 +53,7 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
   Reg#(Bit#(11))  txHave <- mkReg(0);   // 软件真正给了多少字节，超出的补零
   Reg#(Bit#(BytePos#(bufWords))) txPos  <- mkReg(0);
   Reg#(Bool)      txPend <- mkReg(False);
+  Reg#(Bool)      txErr  <- mkConfigReg(False);
 
   Reg#(Bit#(BytePos#(bufWords))) rxPos  <- mkConfigReg(0);
   Reg#(Bit#(48))  rxDst  <- mkConfigReg(0);
@@ -60,10 +61,14 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
   Reg#(Bit#(11))  rxLen  <- mkConfigReg(0);
   Reg#(Bool)      rxFull <- mkConfigReg(False);
   Reg#(Bool)      fcsBad <- mkConfigReg(False);
+  Reg#(Bool)      rxOver <- mkConfigReg(False);
   Reg#(Bit#(32))  rxWord <- mkReg(0);
 
   // 接收落在缓冲区上半，发送在下半。半分点是编译期常数，不占逻辑。
   Integer half = valueOf(bufWords) / 2;
+  // 802.3 的最大帧 1518 字节含 FCS；发送长度不含 FCS。两边都不许越过各自的半区
+  Integer txMax = min(half * 4, 1514);
+  Integer rxMax = min(half * 4, 1518);
 
   // swmod 的脉冲与寄存器的新值差一拍，先记脉冲、下一拍再取长度
   rule mark;
@@ -71,12 +76,20 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
   endrule
 
   rule startTx (txPend && !txRun && r.ctrl_en == 1);
-    txRun  <= True;
-    // 802.3 的最小帧是 64 字节（含四字节 FCS），净荷不足 60 的由 MAC 补齐——
-    // 不补就是个 runt，线上任何交换机都会丢掉，而软件这一侧什么也看不出来。
-    txLeft <= (r.txlen < 60) ? 60 : r.txlen;
-    txHave <= r.txlen;
-    txPos  <= 0;
+    if (r.txlen > fromInteger(txMax)) begin
+      // 不发。sendByte 按字节地址往下读，越过半分点读到的是接收半区：
+      // 上一帧收到的数据会被原样发到线上。报 txerr，照常叫醒软件
+      txErr <= True;
+      r.ista_set(2'b01);
+    end else begin
+      txErr  <= False;
+      txRun  <= True;
+      // 802.3 的最小帧是 64 字节（含四字节 FCS），净荷不足 60 的由 MAC 补齐——
+      // 不补就是个 runt，线上任何交换机都会丢掉，而软件这一侧什么也看不出来。
+      txLeft <= (r.txlen < 60) ? 60 : r.txlen;
+      txHave <= r.txlen;
+      txPos  <= 0;
+    end
   endrule
 
   rule sendByte (txRun && txLeft != 0);
@@ -103,14 +116,17 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
   rule recvByte (!rxFull);
     let x <- rx.rx.get;
     if (x.last) begin
-      // 末尾那一拍只带校验结果，不带数据
-      // 被过滤掉的帧不叫醒软件，缓冲区留给下一帧
-      rxFull <= !rxDrop;
-      rxLen  <= rxDrop ? 0 : truncate(rxPos);
+      // 末尾那一拍只带校验结果，不带数据。过滤掉的、runt、超长的都不叫醒软件，
+      // 缓冲区留给下一帧：runt 是冲突碎片（最小帧 64 字节含 FCS）；超长帧已经截断，
+      // 截断之后 FCS 照样是对的，交出去软件看不出少了一截
+      Bool keep = !rxDrop && !rxOver && rxPos >= 64;
+      rxFull <= keep;
+      rxLen  <= keep ? truncate(rxPos) : 0;
       fcsBad <= !x.fcsOk;
       rxPos  <= 0;
       rxDrop <= False;
-      if (!rxDrop) r.ista_set(2'b10);
+      rxOver <= False;
+      if (keep) r.ista_set(2'b10);
     end else if (rxPos < 6) begin
       // 前六个字节是目的地址。不开混杂模式就只收自己的与广播的，
       // 收完第六个字节当场决定这一帧还要不要往下写。
@@ -134,7 +150,7 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
                     endcase;
       r.frame_in(truncate(p >> 2), nw);
       rxPos <= rxPos + 1;
-    end else if (!rxDrop && rxPos < fromInteger(half * 4)) begin
+    end else if (!rxDrop && rxPos < fromInteger(rxMax)) begin
       Bit#(BytePos#(bufWords)) p = rxPos + fromInteger(half * 4);
       Bit#(32) w = r.frame[p >> 2];
       Bit#(32) nw = case (p[1:0])
@@ -145,6 +161,8 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
                     endcase;
       r.frame_in(truncate(p >> 2), nw);
       rxPos <= rxPos + 1;
+    end else if (!rxDrop) begin
+      rxOver <= True;
     end
   endrule
 
@@ -160,6 +178,7 @@ module mkEmac#(EmacCfg cfg)(EmacIfc#(aw, dw, bufWords))
     r.status_txbusy_in(txRun ? 1 : 0);
     r.status_rxfull_in(rxFull ? 1 : 0);
     r.status_fcserr_in(fcsBad ? 1 : 0);
+    r.status_txerr_in(txErr ? 1 : 0);
   endrule
 
   // 环回：把发送侧的两根线喂回接收侧，外面那一路照旧存在、只是被忽略。

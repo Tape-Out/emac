@@ -25,13 +25,13 @@ regs:
 
   - name: txlen
     offset: 0x10
-    desc: writing a length hands the transmit buffer to the MAC
+    desc: writing a length hands the transmit buffer to the MAC; a length past the transmit half or 1514 bytes sends nothing and raises status.txerr
     fields:
       - { name: val, bits: "10:0", sw: rw, hw: r, reset: 0, swmod: true }
 
   - name: rxlen
     offset: 0x14
-    desc: bytes in the receive buffer, reading arms the next frame
+    desc: bytes in the receive buffer, the four FCS bytes included; reading arms the next frame
     fields:
       - { name: val, bits: "10:0", sw: r, hw: w, volatile: true, swacc: true }
 
@@ -42,6 +42,7 @@ regs:
       - { name: txbusy, bits: "0:0", sw: r, hw: w, volatile: true }
       - { name: rxfull, bits: "1:1", sw: r, hw: w, volatile: true }
       - { name: fcserr, bits: "2:2", sw: r, hw: w, volatile: true }
+      - { name: txerr,  bits: "3:3", sw: r, hw: w, volatile: true }
 
   - name: ie
     offset: 0x1C
