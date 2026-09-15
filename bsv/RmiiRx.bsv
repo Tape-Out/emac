@@ -2,7 +2,7 @@ package RmiiRx;
 
 import FIFOF::*;
 import GetPut::*;
-import EthCrc::*;
+import Gf2::*;
 
 // IEEE 802.3 帧在 RMII 上的接收：CRS_DV 有效期间每拍收 2 比特，LSB 先到。
 // 前导码 0x55 x7 + SFD 0xD5 之后是净荷，末 4 字节为 FCS。
@@ -37,7 +37,7 @@ module mkRmiiRx(RmiiRxIfc);
   Reg#(RxState)  st   <- mkReg(Idle);
   Reg#(Bit#(8))  acc  <- mkReg(0);
   Reg#(Bit#(2))  dib  <- mkReg(0);
-  Reg#(Bit#(32)) crc  <- mkReg(crcInit);
+  Reg#(Bit#(32)) crc  <- mkReg(crc32IsoHdlc.seed);
   Reg#(Bool)     err  <- mkReg(False);
 
   // 收齐一字节：新双比特补到高位，四拍后自然复原 LSB 先出的字节
@@ -45,9 +45,10 @@ module mkRmiiRx(RmiiRxIfc);
 
   rule recv (pinW.wget matches tagged Valid {.rxd, .dv, .rxer});
     if (!dv) begin
-      // 载波消失即帧尾。CRC 跑过净荷与 FCS 后应落在固定余数上。
-      if (st == Data) outQ.enq(RxByte { dat: 0, last: True, fcsOk: (crc == 32'hDEBB20E3) && !err });
-      st <= Idle; dib <= 0; acc <= 0; crc <= crcInit; err <= False;
+      // 载波消失即帧尾。CRC 跑过净荷与 FCS 后应落在固定余数上。Gf2 的寄存器不反射，
+      // 余数是右移写法里常见的 0xDEBB20E3 按位倒过来
+      if (st == Data) outQ.enq(RxByte { dat: 0, last: True, fcsOk: (crc == 32'hC704DD7B) && !err });
+      st <= Idle; dib <= 0; acc <= 0; crc <= crc32IsoHdlc.seed; err <= False;
     end else begin
       Bit#(8) nx = shiftIn(acc, rxd);
       if (rxer) err <= True;
@@ -61,7 +62,7 @@ module mkRmiiRx(RmiiRxIfc);
                 else if (nx != 8'h55) st <= Sync;      // 非法起始，等本帧结束
           Sync: noAction;
           Data: begin
-            crc <= crc32Byte(crc, nx);
+            crc <= crcByte(crc32IsoHdlc, crc, nx);
             outQ.enq(RxByte { dat: nx, last: False, fcsOk: False });
           end
         endcase

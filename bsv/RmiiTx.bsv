@@ -2,7 +2,7 @@ package RmiiTx;
 
 import FIFOF::*;
 import GetPut::*;
-import EthCrc::*;
+import Gf2::*;
 
 typedef enum { Idle, Preamble, Sfd, Payload, Fcs, Ifg } TxState deriving (Bits, Eq, FShow);
 
@@ -26,7 +26,7 @@ module mkRmiiTx(RmiiTxIfc);
   Reg#(Bit#(8))  sh    <- mkReg(8'h55);
   Reg#(Bit#(2))  dib   <- mkReg(0);
   Reg#(Bit#(3))  pre   <- mkReg(0);
-  Reg#(Bit#(32)) crc   <- mkReg(crcInit);
+  Reg#(Bit#(32)) crc   <- mkReg(crc32IsoHdlc.seed);
   Reg#(Bit#(32)) fcsSh <- mkReg(0);
   Reg#(Bit#(2))  fcsI  <- mkReg(0);
   Reg#(Bool)     lastB <- mkReg(False);
@@ -49,7 +49,7 @@ module mkRmiiTx(RmiiTxIfc);
 
   rule startFrame (st == Idle && inQ.notEmpty);
     st <= Preamble; sh <= 8'h55; dib <= 0; pre <= 0;
-    crc <= crcInit; fcsI <= 0;
+    crc <= crc32IsoHdlc.seed; fcsI <= 0;
   endrule
 
   rule shiftMid ((st == Preamble || st == Sfd || st == Payload || st == Fcs) && !bd);
@@ -64,19 +64,20 @@ module mkRmiiTx(RmiiTxIfc);
   rule sfdNext (st == Sfd && bd);
     match {.b, .l} = inQ.first; inQ.deq;
     driveAndStep(b);
-    crc <= crc32Byte(crc, b);
+    crc <= crcByte(crc32IsoHdlc, crc, b);
     lastB <= l; st <= Payload;
   endrule
 
   rule payloadNext (st == Payload && bd && !lastB);
     match {.b, .l} = inQ.first; inQ.deq;
     driveAndStep(b);
-    crc <= crc32Byte(crc, b);
+    crc <= crcByte(crc32IsoHdlc, crc, b);
     lastB <= l;
   endrule
 
   rule payloadLast (st == Payload && bd && lastB);
-    Bit#(32) f = ~crc;
+    // FCS 按字节低位先出：反射与取反都在 crcFinal 里
+    Bit#(32) f = crcFinal(crc32IsoHdlc, crc);
     driveAndStep(f[7:0]);
     fcsSh <= f; fcsI <= 0; st <= Fcs;
   endrule
