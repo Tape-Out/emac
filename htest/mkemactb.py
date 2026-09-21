@@ -60,7 +60,7 @@ import RmiiTx::*;
 import RmiiRx::*;
 import Emac::*;
 
-// 由 tb/mkemactb.py 生成，勿手改。这一点：bufWords={buf} promisc={promisc}
+// 由 htest/mkemactb.py 生成，勿手改。这一点：bufWords={buf} promisc={promisc}
 
 typedef enum {{ Setup, Load, Go, Wait, Check, Chk1,
                TxBig, TxWait, TxChk, LoopOff,
