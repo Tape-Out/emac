@@ -17,9 +17,9 @@ interface RmiiTxIfc;
   interface Put#(Tuple2#(Bit#(8), Bool)) tx;
 endinterface
 
-(* synthesize *)
-(* default_clock_osc = "clk", default_reset = "rst_n" *)
-module mkRmiiTx(RmiiTxIfc);
+// fcs 为假时不补 FCS：直通的交换机原样转发收到的整帧，FCS 已在其中，
+// 再补一个帧就长出四字节，坏帧也被改成了好帧
+module mkRmiiTxWith#(Bool fcs)(RmiiTxIfc);
   FIFOF#(Tuple2#(Bit#(8), Bool)) inQ <- mkSizedFIFOF(4);
 
   Reg#(TxState)  st    <- mkReg(Idle);
@@ -76,10 +76,15 @@ module mkRmiiTx(RmiiTxIfc);
   endrule
 
   rule payloadLast (st == Payload && bd && lastB);
-    // FCS 按字节低位先出：反射与取反都在 crcFinal 里
-    Bit#(32) f = crcFinal(crc32IsoHdlc, crc);
-    driveAndStep(f[7:0]);
-    fcsSh <= f; fcsI <= 0; st <= Fcs;
+    if (fcs) begin
+      // FCS 按字节低位先出：反射与取反都在 crcFinal 里
+      Bit#(32) f = crcFinal(crc32IsoHdlc, crc);
+      driveAndStep(f[7:0]);
+      fcsSh <= f; fcsI <= 0; st <= Fcs;
+    end else begin
+      txdR <= sh[1:0]; enR <= True; dib <= 0;
+      st <= Ifg; ifg <= 0;
+    end
   endrule
 
   rule fcsNext (st == Fcs && bd);
@@ -104,6 +109,20 @@ module mkRmiiTx(RmiiTxIfc);
   endinterface
 
   interface tx = toPut(inQ);
+endmodule
+
+(* synthesize *)
+(* default_clock_osc = "clk", default_reset = "rst_n" *)
+module mkRmiiTx(RmiiTxIfc);
+  let m <- mkRmiiTxWith(True);
+  return m;
+endmodule
+
+(* synthesize *)
+(* default_clock_osc = "clk", default_reset = "rst_n" *)
+module mkRmiiTxRaw(RmiiTxIfc);
+  let m <- mkRmiiTxWith(False);
+  return m;
 endmodule
 
 endpackage
