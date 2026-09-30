@@ -6,7 +6,7 @@ lang: bsv
 identity:
   slug: emac-tapeout-bsv
   display_name: Ethernet MAC with an RMII interface
-  summary: 'A buffered 10/100 MAC: fill a buffer, write the length, it goes.'
+  summary: 'A buffered 100 Mbps RMII MAC: fill a buffer, write the length, it goes.'
   category: network
   subcategories:
   - ethernet
